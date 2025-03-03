@@ -1,19 +1,53 @@
 #!/bin/sh
 # Скрипт для обновления и установки компонентов SSClash и mihomo на OpenWRT
 
-echo "Выберите архитектуру ядра (mipsel_24kc, arm64, Amd64):"
-read KERNEL
+# 1. Выбор архитектуры ядра
+echo "Выберите архитектуру ядра:"
+select KERNEL in mipsel_24kc arm64 Amd64; do
+  case "$KERNEL" in
+    mipsel_24kc|arm64|Amd64)
+      echo "Выбрана архитектура: $KERNEL"
+      break
+      ;;
+    *)
+      echo "Неверный выбор. Попробуйте снова."
+      ;;
+  esac
+done
 
-case "$KERNEL" in
-  mipsel_24kc|arm64|Amd64)
-    echo "Выбрана архитектура: $KERNEL"
-    ;;
-  *)
-    echo "Неверный выбор. Скрипт завершает работу."
-    exit 1
-    ;;
-esac
-# 2. Отключение интерфейса wan6 и настройка DNS для wan
+# 2. Настройка пароля root
+echo "Установка пароля root..."
+echo -e "magicrouter123@\nmagicrouter123@" | passwd root
+
+# 3. Переименование Wi-Fi сетей
+echo "Переименование Wi-Fi сетей..."
+MAC_HASH=$(cat /sys/class/net/$(uci get wireless.@wifi-iface[0].ifname)/address | md5sum | cut -c1-6)
+SSID="MagicRouter$MAC_HASH"
+
+uci set wireless.@wifi-iface[0].ssid="$SSID"
+uci set wireless.@wifi-iface[1].ssid="$SSID-5G"
+
+# 4. Настройка мощности сигнала Wi-Fi и паролей
+echo "Настройка мощности сигнала Wi-Fi и паролей..."
+for iface in $(uci show wireless | grep "@wifi-iface" | cut -d "[" -f2 | cut -d "]" -f1); do
+  uci set wireless.@wifi-iface[$iface].txpower=20 # Максимальная мощность
+  uci set wireless.@wifi-iface[$iface].key="MagicRouter123"
+  uci set wireless.@wifi-iface[$iface].encryption="psk2"
+done
+uci commit wireless
+wifi reload
+
+# 5. Удаление ненужных пакетов
+echo "Удаление ненужных пакетов..."
+opkg remove banip adblock watchcat https-dns-proxy ruantiblock nextdns podkop
+
+# 6. Настройка интерфейса Luci (язык и тема)
+echo "Настройка web-панели..."
+uci set luci.main.lang="ru"
+uci set luci.main.mediaurlbase="/luci-static/argon"
+uci commit luci
+
+# 7. Отключение интерфейса wan6 и настройка DNS для wan
 echo "Настройка сетевых интерфейсов и DNS..."
 uci set network.wan6.disabled=1
 uci set network.wan.peerdns=0
@@ -26,26 +60,26 @@ uci add_list network.wan.dns='8.8.8.8'
 uci commit network
 /etc/init.d/network restart
 
-# 3. Обновление opkg и установка необходимых пакетов
+# 8. Обновление opkg и установка необходимых пакетов
 echo "Обновление opkg и установка kmod-nft-tproxy и curl..."
 opkg update && opkg install kmod-nft-tproxy curl
 
-# 4. Получение версии и установка luci-app-ssclash
+# 9. Получение версии и установка luci-app-ssclash
 echo "Получение и установка luci-app-ssclash..."
 releasessclash=$(curl -s -L https://github.com/zerolabnet/SSClash/releases/latest | grep "title>Release" | cut -d " " -f 4 | cut -d "v" -f 2)
 curl -L https://github.com/zerolabnet/ssclash/releases/download/v$releasessclash/luci-app-ssclash_${releasessclash}-1_all.ipk -o /tmp/luci-app-ssclash_${releasessclash}-1_all.ipk
 opkg install /tmp/luci-app-ssclash_${releasessclash}-1_all.ipk
 rm -f /tmp/luci-app-ssclash_${releasessclash}-1_all.ipk
 
-# 5. Остановка сервиса clash
+# 10. Остановка сервиса clash
 echo "Остановка сервиса clash..."
 service clash stop
 
-# 6. Получение версии mihomo
+# 11. Получение версии mihomo
 echo "Получение версии mihomo..."
 releasemihomo=$(curl -s -L https://github.com/MetaCubeX/mihomo/releases/latest | grep "title>Release" | cut -d " " -f 4)
 
-# 7. Загрузка бинарного файла в зависимости от выбранной архитектуры
+# 12. Загрузка бинарного файла в зависимости от выбранной архитектуры
 echo "Загрузка бинарника для $KERNEL..."
 case "$KERNEL" in
   arm64)
@@ -59,14 +93,14 @@ case "$KERNEL" in
     ;;
 esac
 
-# 8. Распаковка и установка бинарника clash
+# 13. Распаковка и установка бинарника clash
 echo "Распаковка и установка clash..."
 mkdir -p /opt/clash/bin
 gunzip -c /tmp/clash.gz > /opt/clash/bin/clash
 chmod +x /opt/clash/bin/clash
 rm -f /tmp/clash.gz
 
-# 9. Обновление конфигурационного файла /opt/clash/config.yaml
+# 14. Обновление конфигурационного файла /opt/clash/config.yaml
 echo "Настройка конфигурации Clash..."
 cat << 'EOF' > /opt/clash/config.yaml
 # основные настройки
