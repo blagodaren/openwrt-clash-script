@@ -3,10 +3,22 @@
 
 # 1. Выбор архитектуры ядра
 echo "Выберите архитектуру ядра:"
-select KERNEL in mipsel_24kc arm64 Amd64; do
-  case "$KERNEL" in
-    mipsel_24kc|arm64|Amd64)
-      echo "Выбрана архитектура: $KERNEL"
+echo "1. mipsel_24kc"
+echo "2. arm64"
+echo "3. Amd64"
+while true; do
+  read -p "Введите номер архитектуры (1-3): " choice
+  case "$choice" in
+    1)
+      KERNEL="mipsel_24kc"
+      break
+      ;;
+    2)
+      KERNEL="arm64"
+      break
+      ;;
+    3)
+      KERNEL="Amd64"
       break
       ;;
     *)
@@ -14,6 +26,8 @@ select KERNEL in mipsel_24kc arm64 Amd64; do
       ;;
   esac
 done
+
+echo "Выбрана архитектура: $KERNEL"
 
 # 2. Настройка пароля root
 echo "Установка пароля root..."
