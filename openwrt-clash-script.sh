@@ -1,9 +1,9 @@
 #!/bin/sh
 # Скрипт для обновления и установки компонентов SSClash и mihomo на OpenWRT
 
-# 1. Запрос выбора архитектуры ядра
 echo "Выберите архитектуру ядра (mipsel_24kc, arm64, Amd64):"
 read KERNEL
+
 case "$KERNEL" in
   mipsel_24kc|arm64|Amd64)
     echo "Выбрана архитектура: $KERNEL"
@@ -13,7 +13,6 @@ case "$KERNEL" in
     exit 1
     ;;
 esac
-
 # 2. Отключение интерфейса wan6 и настройка DNS для wan
 echo "Настройка сетевых интерфейсов и DNS..."
 uci set network.wan6.disabled=1
@@ -107,8 +106,7 @@ keep-alive-interval: 15
 proxy-providers:
   t.me/VPN_Router_Best:
     type: http
-    url: "https://20011712.xyz/uiw5cMhEYTFaF1Bv18BJOPbV0Gn2VvNs9M6c48sYCnEXPNp12jWp60H9i7nBwpFy/dXNlciwxNzQwNTU4NDkzHMvuz5NoGh/clash-meta"
-    path: ./proxy_providers/in.yaml
+    url: "https://google.com"
     interval: 86400
     proxy: DIRECT
     header:
