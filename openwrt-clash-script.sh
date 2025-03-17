@@ -73,17 +73,13 @@ done
 uci commit wireless
 wifi reload
 
-# 6. Удаление ненужных пакетов
-echo "Удаление ненужных пакетов..."
-opkg remove --force-depends banip adblock watchcat https-dns-proxy ruantiblock nextdns podkop
-
-# 7. Настройка интерфейса Luci (язык и тема)
+# 6. Настройка интерфейса Luci (язык и тема)
 echo "Настройка web-панели..."
 uci set luci.main.lang="ru"
 uci set luci.main.mediaurlbase="/luci-static/argon"
 uci commit luci
 
-# 8. Отключение интерфейса wan6 и настройка DNS для wan
+# 7. Отключение интерфейса wan6 и настройка DNS для wan
 echo "Настройка сетевых интерфейсов и DNS..."
 uci set network.wan6.disabled=1
 uci set network.wan.peerdns=0
@@ -95,26 +91,26 @@ uci add_list network.wan.dns='8.8.8.8'
 uci commit network
 /etc/init.d/network restart
 
-# 9. Обновление opkg и установка необходимых пакетов
+# 8. Обновление opkg и установка необходимых пакетов
 echo "Обновление opkg и установка kmod-nft-tproxy и curl..."
 opkg update && opkg install kmod-nft-tproxy curl
 
-# 10. Получение версии и установка luci-app-ssclash
+# 9. Получение версии и установка luci-app-ssclash
 echo "Получение и установка luci-app-ssclash..."
 releasessclash=$(curl -s -L https://github.com/zerolabnet/SSClash/releases/latest | grep "title>Release" | cut -d " " -f 4 | cut -d "v" -f 2)
 curl -L https://github.com/zerolabnet/ssclash/releases/download/v$releasessclash/luci-app-ssclash_${releasessclash}-1_all.ipk -o /tmp/luci-app-ssclash_${releasessclash}-1_all.ipk
 opkg install /tmp/luci-app-ssclash_${releasessclash}-1_all.ipk
 rm -f /tmp/luci-app-ssclash_${releasessclash}-1_all.ipk
 
-# 11. Остановка сервиса clash
+# 10. Остановка сервиса clash
 echo "Остановка сервиса clash..."
 service clash stop
 
-# 12. Получение версии mihomo
+# 11. Получение версии mihomo
 echo "Получение версии mihomo..."
 releasemihomo=$(curl -s -L https://github.com/MetaCubeX/mihomo/releases/latest | grep "title>Release" | cut -d " " -f 4)
 
-# 13. Загрузка бинарного файла в зависимости от выбранной архитектуры
+# 12. Загрузка бинарного файла в зависимости от выбранной архитектуры
 echo "Загрузка бинарника для $KERNEL..."
 case "$KERNEL" in
   arm64)
@@ -128,14 +124,14 @@ case "$KERNEL" in
     ;;
 esac
 
-# 14. Распаковка и установка бинарника clash
+# 13. Распаковка и установка бинарника clash
 echo "Распаковка и установка clash..."
 mkdir -p /opt/clash/bin
 gunzip -c /tmp/clash.gz > /opt/clash/bin/clash
 chmod +x /opt/clash/bin/clash
 rm -f /tmp/clash.gz
 
-# 15. Запуск сервиса clash
+# 14. Запуск сервиса clash
 if [ -x "/opt/clash/bin/clash" ]; then
   echo "Запуск сервиса clash..."
   service clash start
@@ -143,7 +139,7 @@ else
   echo "Бинарник clash не найден. Убедитесь, что он был установлен корректно."
 fi
 
-# 16. Обновление конфигурационного файла /opt/clash/config.yaml
+# 15. Обновление конфигурационного файла /opt/clash/config.yaml
 echo "Настройка конфигурации Clash..."
 cat << EOF > /opt/clash/config.yaml
 # основные настройки
@@ -181,7 +177,7 @@ keep-alive-idle: 15
 keep-alive-interval: 15
 
 proxy-providers:
-  t.me/VPN_Router_Best:
+  t.me/blgdrnvpn_bot:
     type: http
     url: "$VPN_SUBSCRIPTION_URL"
     interval: 86400
@@ -208,7 +204,7 @@ proxy-groups:
     lazy: true
     icon: https://fastly.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/Available.png
     use:
-      - t.me/VPN_Router_Best
+      - t.me/blgdrnvpn_bot
       
   - name: Ручной выбор
     type: select
@@ -219,7 +215,7 @@ proxy-groups:
     lazy: true
     icon: https://fastly.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/Proxy.png
     use:
-      - t.me/VPN_Router_Best
+      - t.me/blgdrnvpn_bot
 
 rule-providers:
   ru-bundle:
