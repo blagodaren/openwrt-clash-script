@@ -1,15 +1,81 @@
 #!/bin/sh
-# Скрипт для обновления и установки компонентов SSClash и mihomo на OpenWRT
 
-# 1. Запрос ссылки на подписку VPN
+# Добавляем режим отладки
+DEBUG=0
+if [ "$1" = "-d" ] || [ "$1" = "--debug" ]; then
+  DEBUG=1
+  echo "Включен режим отладки"
+  set -x
+fi
+
+# Функция для вывода сообщений с временной меткой
+log_message() {
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+}
+
+# Функция для создания резервных копий
+create_backup() {
+  BACKUP_DIR="/tmp/router_backup_$(date '+%Y%m%d%H%M%S')"
+  log_message "Создание резервной копии настроек в $BACKUP_DIR"
+  
+  mkdir -p "$BACKUP_DIR"
+  
+  # Резервное копирование конфигураций
+  sysupgrade -b "$BACKUP_DIR/config_backup.tar.gz"
+  
+  # Резервное копирование отдельных настроек
+  if [ -d "/etc/config" ]; then
+    cp -r /etc/config "$BACKUP_DIR/config"
+  fi
+  
+  if [ -d "/opt/clash" ]; then
+    cp -r /opt/clash "$BACKUP_DIR/clash"
+  fi
+  
+  log_message "Резервное копирование завершено"
+}
+
+# Основная часть скрипта
+log_message "Начало выполнения скрипта"
+
 echo "Введите ссылку на вашу подписку VPN (например, https://example.com/subscription):"
 read -r VPN_SUBSCRIPTION_URL
 if [ -z "$VPN_SUBSCRIPTION_URL" ]; then
-  echo "Ссылка на подписку не указана. Используется значение по умолчанию: https://google.com"
+  log_message "Ссылка на подписку не указана. Используется значение по умолчанию: https://google.com"
   VPN_SUBSCRIPTION_URL="https://google.com"
 fi
 
-# 2. Выбор архитектуры ядра
+echo "Введите название для Wi-Fi сетей (без суффикса -5G для 5 ГГц):"
+read -r WIFI_NAME
+if [ -z "$WIFI_NAME" ]; then
+  log_message "Название Wi-Fi не указано. Будет использовано автоматическое название."
+  WIFI_NAME=""
+fi
+
+echo "Введите пароль для Wi-Fi сетей (минимум 8 символов):"
+read -r WIFI_PASSWORD
+if [ -z "$WIFI_PASSWORD" ]; then
+  log_message "Пароль Wi-Fi не указан. Используется значение по умолчанию: MagicRouter123"
+  WIFI_PASSWORD="MagicRouter123"
+elif [ ${#WIFI_PASSWORD} -lt 8 ]; then
+  log_message "Пароль Wi-Fi слишком короткий. Используется значение по умолчанию: MagicRouter123"
+  WIFI_PASSWORD="MagicRouter123"
+fi
+
+echo "Введите новый пароль для пользователя root:"
+read -r ROOT_PASSWORD
+if [ -z "$ROOT_PASSWORD" ]; then
+  log_message "Пароль не указан. Используется значение по умолчанию: magicrouter123@"
+  ROOT_PASSWORD="magicrouter123@"
+fi
+
+echo "Введите название для прокси-провайдера (например, my_vpn_provider):"
+read -r PROXY_PROVIDER_NAME
+if [ -z "$PROXY_PROVIDER_NAME" ]; then
+  log_message "Название прокси-провайдера не указано. Используется значение по умолчанию: t.me/blgdrnvpn_bot"
+  PROXY_PROVIDER_NAME="t.me/blgdrnvpn_bot"
+fi
+
 echo "Выберите архитектуру ядра:"
 echo "1. mipsel_24kc"
 echo "2. arm64"
@@ -30,57 +96,70 @@ while true; do
       break
       ;;
     *)
-      echo "Неверный выбор. Попробуйте снова."
+      log_message "Неверный выбор. Попробуйте снова."
       ;;
   esac
 done
 
-echo "Выбрана архитектура: $KERNEL"
+log_message "Выбрана архитектура: $KERNEL"
 
-# 3. Настройка пароля root
-echo "Установка пароля root..."
-echo -e "magicrouter123@\nmagicrouter123@" | passwd root
+# Создание резервной копии перед внесением изменений
+create_backup
 
-# 4. Переименование Wi-Fi сетей
-echo "Переименование Wi-Fi сетей..."
+log_message "Установка пароля root..."
+if echo -e "$ROOT_PASSWORD\n$ROOT_PASSWORD" | passwd root; then
+  log_message "Пароль root успешно изменен"
+else
+  log_message "Ошибка при изменении пароля root"
+fi
+
+log_message "Переименование Wi-Fi сетей..."
 if uci show wireless | grep -q "@wifi-iface"; then
   WIFI_IFACE=$(uci show wireless | grep "@wifi-iface" | cut -d "[" -f2 | cut -d "]" -f1 | head -n 1)
   if [ -n "$WIFI_IFACE" ]; then
     WIFI_IFNAME=$(uci get wireless.@wifi-iface[$WIFI_IFACE].ifname)
     if [ -n "$WIFI_IFNAME" ] && [ -e "/sys/class/net/$WIFI_IFNAME/address" ]; then
-      MAC_HASH=$(cat /sys/class/net/$WIFI_IFNAME/address | md5sum | cut -c1-6)
-      SSID="MagicRouter$MAC_HASH"
+      if [ -z "$WIFI_NAME" ]; then
+        MAC_HASH=$(cat /sys/class/net/$WIFI_IFNAME/address | md5sum | cut -c1-6)
+        WIFI_NAME="MagicRouter$MAC_HASH"
+        log_message "Сгенерировано автоматическое имя Wi-Fi: $WIFI_NAME"
+      fi
 
-      uci set wireless.@wifi-iface[0].ssid="$SSID"
-      uci set wireless.@wifi-iface[1].ssid="$SSID-5G"
+      uci set wireless.@wifi-iface[0].ssid="$WIFI_NAME"
+      uci set wireless.@wifi-iface[1].ssid="$WIFI_NAME-5G"
+      log_message "Wi-Fi сети переименованы в '$WIFI_NAME' и '$WIFI_NAME-5G'"
     else
-      echo "Не удалось получить MAC-адрес Wi-Fi интерфейса."
+      log_message "Не удалось получить MAC-адрес Wi-Fi интерфейса."
     fi
   else
-    echo "Wi-Fi интерфейсы не найдены."
+    log_message "Wi-Fi интерфейсы не найдены."
   fi
 else
-  echo "Wi-Fi интерфейсы не найдены. Пропускаю настройку Wi-Fi."
+  log_message "Wi-Fi интерфейсы не найдены. Пропускаю настройку Wi-Fi."
 fi
 
-# 5. Настройка мощности сигнала Wi-Fi и паролей
-echo "Настройка мощности сигнала Wi-Fi и паролей..."
+log_message "Настройка мощности сигнала Wi-Fi и паролей..."
 for iface in $(uci show wireless | grep "@wifi-iface" | cut -d "[" -f2 | cut -d "]" -f1); do
-  uci set wireless.@wifi-iface[$iface].txpower=20 # Максимальная мощность
-  uci set wireless.@wifi-iface[$iface].key="MagicRouter123"
+  uci set wireless.@wifi-iface[$iface].txpower=20
+  uci set wireless.@wifi-iface[$iface].key="$WIFI_PASSWORD"
   uci set wireless.@wifi-iface[$iface].encryption="psk2"
+  log_message "Настроен Wi-Fi интерфейс $iface: мощность=20, шифрование=psk2"
 done
 uci commit wireless
-wifi reload
+log_message "Перезагрузка Wi-Fi..."
+if wifi reload; then
+  log_message "Wi-Fi успешно перезагружен"
+else
+  log_message "Ошибка при перезагрузке Wi-Fi"
+fi
 
-# 6. Настройка интерфейса Luci (язык и тема)
-echo "Настройка web-панели..."
+log_message "Настройка web-панели..."
 uci set luci.main.lang="ru"
 uci set luci.main.mediaurlbase="/luci-static/argon"
 uci commit luci
+log_message "Web-панель настроена: язык=ru, тема=argon"
 
-# 7. Отключение интерфейса wan6 и настройка DNS для wan
-echo "Настройка сетевых интерфейсов и DNS..."
+log_message "Настройка сетевых интерфейсов и DNS..."
 uci set network.wan6.disabled=1
 uci set network.wan.peerdns=0
 uci del_list network.wan.dns 1>/dev/null 2>&1
@@ -89,29 +168,63 @@ uci add_list network.wan.dns='1.0.0.1'
 uci add_list network.wan.dns='8.8.4.4'
 uci add_list network.wan.dns='8.8.8.8'
 uci commit network
-/etc/init.d/network restart
+log_message "Перезапуск сетевых интерфейсов..."
+if /etc/init.d/network restart; then
+  log_message "Сетевые интерфейсы успешно перезапущены"
+else
+  log_message "Ошибка при перезапуске сетевых интерфейсов"
+fi
 
-# 8. Обновление opkg и установка необходимых пакетов
-echo "Обновление opkg и установка kmod-nft-tproxy и curl..."
-opkg update && opkg install kmod-nft-tproxy curl
+log_message "Обновление opkg и установка необходимых пакетов..."
+if opkg update; then
+  log_message "База пакетов успешно обновлена"
+else
+  log_message "Ошибка при обновлении базы пакетов"
+fi
 
-# 9. Получение версии и установка luci-app-ssclash
-echo "Получение и установка luci-app-ssclash..."
+if opkg install kmod-nft-tproxy curl; then
+  log_message "Пакеты kmod-nft-tproxy и curl успешно установлены"
+else
+  log_message "Ошибка при установке пакетов kmod-nft-tproxy и curl"
+fi
+
+log_message "Получение и установка luci-app-ssclash..."
 releasessclash=$(curl -s -L https://github.com/zerolabnet/SSClash/releases/latest | grep "title>Release" | cut -d " " -f 4 | cut -d "v" -f 2)
-curl -L https://github.com/zerolabnet/ssclash/releases/download/v$releasessclash/luci-app-ssclash_${releasessclash}-1_all.ipk -o /tmp/luci-app-ssclash_${releasessclash}-1_all.ipk
-opkg install /tmp/luci-app-ssclash_${releasessclash}-1_all.ipk
-rm -f /tmp/luci-app-ssclash_${releasessclash}-1_all.ipk
+if [ -n "$releasessclash" ]; then
+  log_message "Найдена версия SSClash: $releasessclash"
+  curl -L https://github.com/zerolabnet/ssclash/releases/download/v$releasessclash/luci-app-ssclash_${releasessclash}-1_all.ipk -o /tmp/luci-app-ssclash_${releasessclash}-1_all.ipk
+  if [ -f "/tmp/luci-app-ssclash_${releasessclash}-1_all.ipk" ]; then
+    log_message "Установка пакета luci-app-ssclash..."
+    if opkg install /tmp/luci-app-ssclash_${releasessclash}-1_all.ipk; then
+      log_message "Пакет luci-app-ssclash успешно установлен"
+    else
+      log_message "Ошибка при установке пакета luci-app-ssclash"
+    fi
+    rm -f /tmp/luci-app-ssclash_${releasessclash}-1_all.ipk
+  else
+    log_message "Ошибка при загрузке пакета luci-app-ssclash"
+  fi
+else
+  log_message "Не удалось получить актуальную версию SSClash"
+fi
 
-# 10. Остановка сервиса clash
-echo "Остановка сервиса clash..."
-service clash stop
+log_message "Остановка сервиса clash..."
+if service clash stop; then
+  log_message "Сервис clash успешно остановлен"
+else
+  log_message "Ошибка при остановке сервиса clash или сервис не был запущен"
+fi
 
-# 11. Получение версии mihomo
-echo "Получение версии mihomo..."
+log_message "Получение версии mihomo..."
 releasemihomo=$(curl -s -L https://github.com/MetaCubeX/mihomo/releases/latest | grep "title>Release" | cut -d " " -f 4)
+if [ -n "$releasemihomo" ]; then
+  log_message "Найдена версия mihomo: $releasemihomo"
+else
+  log_message "Не удалось получить актуальную версию mihomo. Используется версия по умолчанию."
+  releasemihomo="v1.18.0"
+fi
 
-# 12. Загрузка бинарного файла в зависимости от выбранной архитектуры
-echo "Загрузка бинарника для $KERNEL..."
+log_message "Загрузка бинарника для $KERNEL..."
 case "$KERNEL" in
   arm64)
     curl -L https://github.com/MetaCubeX/mihomo/releases/download/$releasemihomo/mihomo-linux-arm64-$releasemihomo.gz -o /tmp/clash.gz
@@ -124,42 +237,120 @@ case "$KERNEL" in
     ;;
 esac
 
-# 13. Распаковка и установка бинарника clash
-echo "Распаковка и установка clash..."
-mkdir -p /opt/clash/bin
-gunzip -c /tmp/clash.gz > /opt/clash/bin/clash
-chmod +x /opt/clash/bin/clash
-rm -f /tmp/clash.gz
-
-# 14. Запуск сервиса clash
-if [ -x "/opt/clash/bin/clash" ]; then
-  echo "Запуск сервиса clash..."
-  service clash start
+log_message "Распаковка и установка clash..."
+if [ -f "/tmp/clash.gz" ]; then
+  mkdir -p /opt/clash/bin
+  if gunzip -c /tmp/clash.gz > /opt/clash/bin/clash; then
+    chmod +x /opt/clash/bin/clash
+    log_message "Clash успешно установлен"
+  else
+    log_message "Ошибка при распаковке clash"
+  fi
+  rm -f /tmp/clash.gz
 else
-  echo "Бинарник clash не найден. Убедитесь, что он был установлен корректно."
+  log_message "Ошибка: файл /tmp/clash.gz не найден"
 fi
 
-# 15. Обновление конфигурационного файла /opt/clash/config.yaml
-echo "Настройка конфигурации Clash..."
-cat << EOF > /opt/clash/config.yaml
-# основные настройки
-mode: rule # режим работы по правилам
-ipv6: false # выключаем IPv6, т.к. он может мешать работе
-log-level: error # уровень предупреждений в журнале событий
-allow-lan: false # если поставить true, можно открыть SOCKS5 прокси для ваших устройств
-tproxy-port: 7894 # порт прозрачного прокси
-unified-delay: true # все серверы пингуются по два раза, показывая лучшую скорость
-tcp-concurrent: true # многопотоковый режим (ускоряет работу)
-external-controller: 0.0.0.0:9090 # адрес Dashboard панели Clash
-external-ui: ./xd # папка, в которую Clash скачает файлы панели MetaCubeXD
+# Настройка брандмауэра для работы с Clash
+log_message "Настройка брандмауэра для Clash..."
+# Добавление правил для прозрачного прокси
+uci -q delete firewall.clash_tproxy
+uci set firewall.clash_tproxy="include"
+uci set firewall.clash_tproxy.type="script"
+uci set firewall.clash_tproxy.path="/etc/firewall.clash"
+uci set firewall.clash_tproxy.family="any"
+uci set firewall.clash_tproxy.reload="1"
+uci commit firewall
 
-# Блок настройки DNS
+# Создание скрипта для настройки брандмауэра
+cat << 'EOF' > /etc/firewall.clash
+#!/bin/sh
+
+# IP для адресации трафика на Clash
+CLASH_DNS_PORT=7874
+CLASH_TPROXY_PORT=7894
+BYPASS_IPSET="bypass"
+
+# Очистка старых правил
+iptables -t nat -D PREROUTING -p tcp -j CLASH_TCP 2>/dev/null
+iptables -t nat -F CLASH_TCP 2>/dev/null
+iptables -t nat -X CLASH_TCP 2>/dev/null
+iptables -t mangle -D PREROUTING -j CLASH_UDP 2>/dev/null
+iptables -t mangle -F CLASH_UDP 2>/dev/null
+iptables -t mangle -X CLASH_UDP 2>/dev/null
+
+ipset -exist destroy $BYPASS_IPSET
+
+# Создание нового набора для обхода
+ipset -exist create $BYPASS_IPSET hash:net
+
+# Добавление локальных сетей в обходной список
+ipset -exist add $BYPASS_IPSET 0.0.0.0/8
+ipset -exist add $BYPASS_IPSET 10.0.0.0/8
+ipset -exist add $BYPASS_IPSET 127.0.0.0/8
+ipset -exist add $BYPASS_IPSET 169.254.0.0/16
+ipset -exist add $BYPASS_IPSET 172.16.0.0/12
+ipset -exist add $BYPASS_IPSET 192.168.0.0/16
+ipset -exist add $BYPASS_IPSET 224.0.0.0/4
+ipset -exist add $BYPASS_IPSET 240.0.0.0/4
+ipset -exist add $BYPASS_IPSET 198.18.0.0/16
+
+# Создание цепочек правил
+iptables -t nat -N CLASH_TCP
+iptables -t nat -A CLASH_TCP -p tcp -m set --match-set $BYPASS_IPSET dst -j RETURN
+iptables -t nat -A CLASH_TCP -p tcp -j REDIRECT --to-port $CLASH_DNS_PORT -m comment --comment "DNS Hijack"
+iptables -t nat -A PREROUTING -p tcp -j CLASH_TCP
+
+# UDP правила
+iptables -t mangle -N CLASH_UDP
+iptables -t mangle -A CLASH_UDP -p udp -m set --match-set $BYPASS_IPSET dst -j RETURN
+iptables -t mangle -A CLASH_UDP -p udp -j TPROXY --on-port $CLASH_TPROXY_PORT --tproxy-mark 1
+iptables -t mangle -A PREROUTING -j CLASH_UDP
+
+# Маршрут для перенаправленного трафика
+ip rule add fwmark 1 table 100
+ip route add local default dev lo table 100
+EOF
+
+chmod +x /etc/firewall.clash
+
+# Применение правил брандмауэра
+log_message "Применение правил брандмауэра..."
+if /etc/init.d/firewall restart; then
+  log_message "Правила брандмауэра успешно применены"
+else
+  log_message "Ошибка при применении правил брандмауэра"
+fi
+
+if [ -x "/opt/clash/bin/clash" ]; then
+  log_message "Запуск сервиса clash..."
+  if service clash start; then
+    log_message "Сервис clash успешно запущен"
+  else
+    log_message "Ошибка при запуске сервиса clash"
+  fi
+else
+  log_message "Бинарник clash не найден. Убедитесь, что он был установлен корректно."
+fi
+
+log_message "Настройка конфигурации Clash..."
+cat << EOF > /opt/clash/config.yaml
+mode: rule
+ipv6: false
+log-level: error
+allow-lan: false
+tproxy-port: 7894
+unified-delay: true
+tcp-concurrent: true
+external-controller: 0.0.0.0:9090
+external-ui: ./xd
+
 dns:
   enable: true
   listen: 0.0.0.0:7874
   ipv6: false
-  enhanced-mode: fake-ip # особый режим работы Clash, использует поддельные DNS для ускорения работы, есть dns кеш, у некоторых программ и сервисов с ним могут быть сложности, если будет мешать, можно добавить исключения или полностью его отключить
-  fake-ip-range: 198.18.0.1/16 # специальный диапазон ненастоящих IP адресов
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
   default-nameserver:
     - 1.1.1.1
     - 8.8.8.8
@@ -168,24 +359,24 @@ dns:
     - https://dns.aa.net.uk/dns-query
   fake-ip-filter-mode: blacklist
   fake-ip-filter:
-    - '*.lan' # исключает внутренние домены .lan из fake-ip режима
+    - '*.lan'
     - '*.local'
-    - +.msftconnecttest.com # чтобы Windows не показывал глобус вместо Wifi
-    - +.3gppnetwork.org # для работы voWifi в телефонах
+    - +.msftconnecttest.com
+    - +.3gppnetwork.org
 
 keep-alive-idle: 15
 keep-alive-interval: 15
 
 proxy-providers:
-  t.me/blgdrnvpn_bot:
+  $PROXY_PROVIDER_NAME:
     type: http
     url: "$VPN_SUBSCRIPTION_URL"
     interval: 86400
     proxy: DIRECT
     header:
       User-Agent:
-        - "Clash/v1.18.10"
-        - "mihomo/1.18.10"
+        - "Clash/v$releasessclash"
+        - "mihomo/$releasemihomo"
     health-check:
       enable: true
       url: http://cp.cloudflare.com/generate_204
@@ -204,7 +395,7 @@ proxy-groups:
     lazy: true
     icon: https://fastly.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/Available.png
     use:
-      - t.me/blgdrnvpn_bot
+      - $PROXY_PROVIDER_NAME
       
   - name: Ручной выбор
     type: select
@@ -215,7 +406,7 @@ proxy-groups:
     lazy: true
     icon: https://fastly.jsdelivr.net/gh/Koolson/Qure@master/IconSet/Color/Proxy.png
     use:
-      - t.me/blgdrnvpn_bot
+      - $PROXY_PROVIDER_NAME
 
 rule-providers:
   ru-bundle:
@@ -272,4 +463,14 @@ rules:
   - MATCH,DIRECT
 EOF
 
-echo "Скрипт завершил работу."
+log_message "Скрипт завершил работу успешно!"
+echo "==================================="
+echo "Настройка роутера завершена. Сводная информация:"
+echo "Wi-Fi SSID: $WIFI_NAME и $WIFI_NAME-5G"
+echo "Wi-Fi пароль: $WIFI_PASSWORD"
+echo "Версия Clash: $releasessclash"
+echo "Версия Mihomo: $releasemihomo"
+echo "Резервная копия: да"
+echo "Настройка брандмауэра: да"
+echo "==================================="
+echo "Теперь вы можете подключиться к роутеру через Wi-Fi или веб-интерфейс."
