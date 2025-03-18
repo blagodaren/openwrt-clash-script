@@ -177,7 +177,7 @@ else
 fi
 
 log_message "Обновление opkg и установка необходимых пакетов..."
-if opkg update; then
+if opkg update --no-check-certificate; then
   log_message "База пакетов успешно обновлена"
 else
   log_message "Ошибка при обновлении базы пакетов"
@@ -250,85 +250,6 @@ if [ -f "/tmp/clash.gz" ]; then
   rm -f /tmp/clash.gz
 else
   log_message "Ошибка: файл /tmp/clash.gz не найден"
-fi
-
-# Настройка брандмауэра для работы с Clash (с использованием nftables)
-log_message "Настройка брандмауэра для Clash..."
-
-# Создание скрипта для настройки NFT брандмауэра
-cat << 'EOF' > /etc/nftables.d/10-clash.nft
-#!/usr/sbin/nft -f
-
-# Определения для Clash
-define CLASH_DNS_PORT = 7874
-define CLASH_TPROXY_PORT = 7894
-
-# Создание таблицы для Clash если еще не существует
-table inet clash {
-    # Создание набора для локальных сетей
-    set bypass_ips {
-        type ipv4_addr
-        flags interval
-        elements = { 
-            0.0.0.0/8,
-            10.0.0.0/8,
-            127.0.0.0/8,
-            169.254.0.0/16,
-            172.16.0.0/12,
-            192.168.0.0/16,
-            224.0.0.0/4,
-            240.0.0.0/4,
-            198.18.0.0/16
-        }
-    }
-
-    # Цепочка для перенаправления TCP
-    chain redirect_tcp {
-        type nat hook prerouting priority -100; policy accept;
-        ip daddr @bypass_ips return
-        tcp dport 53 redirect to :$CLASH_DNS_PORT comment "DNS Hijack"
-    }
-
-    # Цепочка для перенаправления UDP с TPROXY
-    chain redirect_udp {
-        type filter hook prerouting priority -150; policy accept;
-        ip daddr @bypass_ips return
-        udp dport 53 tproxy to :$CLASH_TPROXY_PORT meta mark set 1 accept
-    }
-}
-EOF
-
-chmod +x /etc/nftables.d/10-clash.nft
-
-log_message "Применение правил брандмауэра..."
-if nft -f /etc/nftables.d/10-clash.nft; then
-  log_message "Правила NFT брандмауэра успешно применены"
-else
-  log_message "Ошибка при применении правил NFT брандмауэра, пробуем альтернативный вариант..."
-  # Очистка и удаление файла NFT если не сработало
-  rm -f /etc/nftables.d/10-clash.nft
-  
-  # Создание простого скрипта для iptables
-  cat << 'EOF' > /etc/firewall.clash
-#!/bin/sh
-
-# Настройка портов для Clash
-CLASH_DNS_PORT=7874
-CLASH_TPROXY_PORT=7894
-
-# Добавление правил для DNS
-iptables -t nat -A PREROUTING -p tcp --dport 53 -j REDIRECT --to-port $CLASH_DNS_PORT
-
-# Вывод информации об успешной настройке
-echo "Простые правила брандмауэра для Clash применены"
-EOF
-
-  chmod +x /etc/firewall.clash
-  if /etc/firewall.clash; then
-    log_message "Простые правила брандмауэра успешно применены"
-  else
-    log_message "Ошибка при применении правил брандмауэра"
-  fi
 fi
 
 if [ -x "/opt/clash/bin/clash" ]; then
@@ -480,6 +401,6 @@ echo "Wi-Fi пароль: $WIFI_PASSWORD"
 echo "Версия Clash: $releasessclash"
 echo "Версия Mihomo: $releasemihomo"
 echo "Резервная копия: да"
-echo "Настройка брандмауэра: да"
+echo "Настройка брандмауэра: нет"
 echo "==================================="
 echo "Теперь вы можете подключиться к роутеру через Wi-Fi или веб-интерфейс."
