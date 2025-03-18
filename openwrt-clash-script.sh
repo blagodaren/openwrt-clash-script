@@ -45,7 +45,7 @@ if [ -z "$VPN_SUBSCRIPTION_URL" ]; then
   VPN_SUBSCRIPTION_URL="https://google.com"
 fi
 
-echo "Введите название для Wi-Fi сетей (без суффикса -5G для 5 ГГц):"
+echo "Введите название для Wi-Fi сетей:"
 read -r WIFI_NAME
 if [ -z "$WIFI_NAME" ]; then
   log_message "Название Wi-Fi не указано. Будет использовано автоматическое название."
@@ -125,9 +125,10 @@ if uci show wireless | grep -q "@wifi-iface"; then
         log_message "Сгенерировано автоматическое имя Wi-Fi: $WIFI_NAME"
       fi
 
+      # Устанавливаем одинаковые имена для обеих сетей
       uci set wireless.@wifi-iface[0].ssid="$WIFI_NAME"
-      uci set wireless.@wifi-iface[1].ssid="$WIFI_NAME-5G"
-      log_message "Wi-Fi сети переименованы в '$WIFI_NAME' и '$WIFI_NAME-5G'"
+      uci set wireless.@wifi-iface[1].ssid="$WIFI_NAME"
+      log_message "Wi-Fi сети переименованы в '$WIFI_NAME'"
     else
       log_message "Не удалось получить MAC-адрес Wi-Fi интерфейса."
     fi
@@ -251,75 +252,83 @@ else
   log_message "Ошибка: файл /tmp/clash.gz не найден"
 fi
 
-# Настройка брандмауэра для работы с Clash
+# Настройка брандмауэра для работы с Clash (с использованием nftables)
 log_message "Настройка брандмауэра для Clash..."
-# Добавление правил для прозрачного прокси
-uci -q delete firewall.clash_tproxy
-uci set firewall.clash_tproxy="include"
-uci set firewall.clash_tproxy.type="script"
-uci set firewall.clash_tproxy.path="/etc/firewall.clash"
-uci set firewall.clash_tproxy.family="any"
-uci set firewall.clash_tproxy.reload="1"
-uci commit firewall
 
-# Создание скрипта для настройки брандмауэра
-cat << 'EOF' > /etc/firewall.clash
-#!/bin/sh
+# Создание скрипта для настройки NFT брандмауэра
+cat << 'EOF' > /etc/nftables.d/10-clash.nft
+#!/usr/sbin/nft -f
 
-# IP для адресации трафика на Clash
-CLASH_DNS_PORT=7874
-CLASH_TPROXY_PORT=7894
-BYPASS_IPSET="bypass"
+# Определения для Clash
+define CLASH_DNS_PORT = 7874
+define CLASH_TPROXY_PORT = 7894
 
-# Очистка старых правил
-iptables -t nat -D PREROUTING -p tcp -j CLASH_TCP 2>/dev/null
-iptables -t nat -F CLASH_TCP 2>/dev/null
-iptables -t nat -X CLASH_TCP 2>/dev/null
-iptables -t mangle -D PREROUTING -j CLASH_UDP 2>/dev/null
-iptables -t mangle -F CLASH_UDP 2>/dev/null
-iptables -t mangle -X CLASH_UDP 2>/dev/null
+# Создание таблицы для Clash если еще не существует
+table inet clash {
+    # Создание набора для локальных сетей
+    set bypass_ips {
+        type ipv4_addr
+        flags interval
+        elements = { 
+            0.0.0.0/8,
+            10.0.0.0/8,
+            127.0.0.0/8,
+            169.254.0.0/16,
+            172.16.0.0/12,
+            192.168.0.0/16,
+            224.0.0.0/4,
+            240.0.0.0/4,
+            198.18.0.0/16
+        }
+    }
 
-ipset -exist destroy $BYPASS_IPSET
+    # Цепочка для перенаправления TCP
+    chain redirect_tcp {
+        type nat hook prerouting priority -100; policy accept;
+        ip daddr @bypass_ips return
+        tcp dport 53 redirect to :$CLASH_DNS_PORT comment "DNS Hijack"
+    }
 
-# Создание нового набора для обхода
-ipset -exist create $BYPASS_IPSET hash:net
-
-# Добавление локальных сетей в обходной список
-ipset -exist add $BYPASS_IPSET 0.0.0.0/8
-ipset -exist add $BYPASS_IPSET 10.0.0.0/8
-ipset -exist add $BYPASS_IPSET 127.0.0.0/8
-ipset -exist add $BYPASS_IPSET 169.254.0.0/16
-ipset -exist add $BYPASS_IPSET 172.16.0.0/12
-ipset -exist add $BYPASS_IPSET 192.168.0.0/16
-ipset -exist add $BYPASS_IPSET 224.0.0.0/4
-ipset -exist add $BYPASS_IPSET 240.0.0.0/4
-ipset -exist add $BYPASS_IPSET 198.18.0.0/16
-
-# Создание цепочек правил
-iptables -t nat -N CLASH_TCP
-iptables -t nat -A CLASH_TCP -p tcp -m set --match-set $BYPASS_IPSET dst -j RETURN
-iptables -t nat -A CLASH_TCP -p tcp -j REDIRECT --to-port $CLASH_DNS_PORT -m comment --comment "DNS Hijack"
-iptables -t nat -A PREROUTING -p tcp -j CLASH_TCP
-
-# UDP правила
-iptables -t mangle -N CLASH_UDP
-iptables -t mangle -A CLASH_UDP -p udp -m set --match-set $BYPASS_IPSET dst -j RETURN
-iptables -t mangle -A CLASH_UDP -p udp -j TPROXY --on-port $CLASH_TPROXY_PORT --tproxy-mark 1
-iptables -t mangle -A PREROUTING -j CLASH_UDP
-
-# Маршрут для перенаправленного трафика
-ip rule add fwmark 1 table 100
-ip route add local default dev lo table 100
+    # Цепочка для перенаправления UDP с TPROXY
+    chain redirect_udp {
+        type filter hook prerouting priority -150; policy accept;
+        ip daddr @bypass_ips return
+        udp dport 53 tproxy to :$CLASH_TPROXY_PORT meta mark set 1 accept
+    }
+}
 EOF
 
-chmod +x /etc/firewall.clash
+chmod +x /etc/nftables.d/10-clash.nft
 
-# Применение правил брандмауэра
 log_message "Применение правил брандмауэра..."
-if /etc/init.d/firewall restart; then
-  log_message "Правила брандмауэра успешно применены"
+if nft -f /etc/nftables.d/10-clash.nft; then
+  log_message "Правила NFT брандмауэра успешно применены"
 else
-  log_message "Ошибка при применении правил брандмауэра"
+  log_message "Ошибка при применении правил NFT брандмауэра, пробуем альтернативный вариант..."
+  # Очистка и удаление файла NFT если не сработало
+  rm -f /etc/nftables.d/10-clash.nft
+  
+  # Создание простого скрипта для iptables
+  cat << 'EOF' > /etc/firewall.clash
+#!/bin/sh
+
+# Настройка портов для Clash
+CLASH_DNS_PORT=7874
+CLASH_TPROXY_PORT=7894
+
+# Добавление правил для DNS
+iptables -t nat -A PREROUTING -p tcp --dport 53 -j REDIRECT --to-port $CLASH_DNS_PORT
+
+# Вывод информации об успешной настройке
+echo "Простые правила брандмауэра для Clash применены"
+EOF
+
+  chmod +x /etc/firewall.clash
+  if /etc/firewall.clash; then
+    log_message "Простые правила брандмауэра успешно применены"
+  else
+    log_message "Ошибка при применении правил брандмауэра"
+  fi
 fi
 
 if [ -x "/opt/clash/bin/clash" ]; then
@@ -466,7 +475,7 @@ EOF
 log_message "Скрипт завершил работу успешно!"
 echo "==================================="
 echo "Настройка роутера завершена. Сводная информация:"
-echo "Wi-Fi SSID: $WIFI_NAME и $WIFI_NAME-5G"
+echo "Wi-Fi SSID: $WIFI_NAME"
 echo "Wi-Fi пароль: $WIFI_PASSWORD"
 echo "Версия Clash: $releasessclash"
 echo "Версия Mihomo: $releasemihomo"
