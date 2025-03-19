@@ -37,41 +37,43 @@ done
 
 echo "Выбрана архитектура: $KERNEL"
 
-# 3. Настройка пароля root
+# 3. Запрос названия Wi-Fi сети и пароля
+echo "Введите название Wi-Fi сети (SSID):"
+read -r WIFI_SSID
+if [ -z "$WIFI_SSID" ]; then
+  echo "Название Wi-Fi сети не указано. Используется значение по умолчанию: MagicRouter"
+  WIFI_SSID="MagicRouter"
+fi
+
+echo "Введите пароль для Wi-Fi и root:"
+read -r WIFI_ROOT_PASSWORD
+if [ -z "$WIFI_ROOT_PASSWORD" ]; then
+  echo "Пароль не указан. Используется значение по умолчанию: MagicRouter123"
+  WIFI_ROOT_PASSWORD="MagicRouter123"
+fi
+
+# 4. Настройка пароля root
 echo "Установка пароля root..."
-echo -e "magicrouter123@\nmagicrouter123@" | passwd root
+echo -e "$WIFI_ROOT_PASSWORD\n$WIFI_ROOT_PASSWORD" | passwd root
 
-# 4. Переименование Wi-Fi сетей
+# 5. Переименование Wi-Fi сетей
 echo "Переименование Wi-Fi сетей..."
-if uci show wireless | grep -q "@wifi-iface"; then
-  WIFI_IFACE=$(uci show wireless | grep "@wifi-iface" | cut -d "[" -f2 | cut -d "]" -f1 | head -n 1)
-  if [ -n "$WIFI_IFACE" ]; then
-    WIFI_IFNAME=$(uci get wireless.@wifi-iface[$WIFI_IFACE].ifname)
-    if [ -n "$WIFI_IFNAME" ] && [ -e "/sys/class/net/$WIFI_IFNAME/address" ]; then
-      MAC_HASH=$(cat /sys/class/net/$WIFI_IFNAME/address | md5sum | cut -c1-6)
-      SSID="MagicRouter$MAC_HASH"
-
-      uci set wireless.@wifi-iface[0].ssid="$SSID"
-      uci set wireless.@wifi-iface[1].ssid="$SSID-5G"
-    else
-      echo "Не удалось получить MAC-адрес Wi-Fi интерфейса."
-    fi
-  else
-    echo "Wi-Fi интерфейсы не найдены."
-  fi
+if uci show wireless | grep -q "wireless.default_radio"; then
+  # Установка одинакового SSID для обеих сетей
+  uci set wireless.default_radio0.ssid="$WIFI_SSID"
+  uci set wireless.default_radio1.ssid="$WIFI_SSID"
+  
+  # Установка пароля Wi-Fi
+  uci set wireless.default_radio0.key="$WIFI_ROOT_PASSWORD"
+  uci set wireless.default_radio0.encryption="psk2"
+  uci set wireless.default_radio1.key="$WIFI_ROOT_PASSWORD"
+  uci set wireless.default_radio1.encryption="psk2"
+  
+  uci commit wireless
+  wifi reload
 else
   echo "Wi-Fi интерфейсы не найдены. Пропускаю настройку Wi-Fi."
 fi
-
-# 5. Настройка мощности сигнала Wi-Fi и паролей
-echo "Настройка мощности сигнала Wi-Fi и паролей..."
-for iface in $(uci show wireless | grep "@wifi-iface" | cut -d "[" -f2 | cut -d "]" -f1); do
-  uci set wireless.@wifi-iface[$iface].txpower=20 # Максимальная мощность
-  uci set wireless.@wifi-iface[$iface].key="MagicRouter123"
-  uci set wireless.@wifi-iface[$iface].encryption="psk2"
-done
-uci commit wireless
-wifi reload
 
 # 6. Настройка интерфейса Luci (язык и тема)
 echo "Настройка web-панели..."
@@ -82,12 +84,6 @@ uci commit luci
 # 7. Отключение интерфейса wan6 и настройка DNS для wan
 echo "Настройка сетевых интерфейсов и DNS..."
 uci set network.wan6.disabled=1
-uci set network.wan.peerdns=0
-uci del_list network.wan.dns 1>/dev/null 2>&1
-uci add_list network.wan.dns='1.1.1.1'
-uci add_list network.wan.dns='1.0.0.1'
-uci add_list network.wan.dns='8.8.4.4'
-uci add_list network.wan.dns='8.8.8.8'
 uci commit network
 /etc/init.d/network restart
 
