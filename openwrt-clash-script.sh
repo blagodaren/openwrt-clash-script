@@ -114,44 +114,74 @@ else
 fi
 
 log_message "Переименование Wi-Fi сетей..."
-if uci show wireless | grep -q "@wifi-iface"; then
-  WIFI_IFACE=$(uci show wireless | grep "@wifi-iface" | cut -d "[" -f2 | cut -d "]" -f1 | head -n 1)
-  if [ -n "$WIFI_IFACE" ]; then
-    WIFI_IFNAME=$(uci get wireless.@wifi-iface[$WIFI_IFACE].ifname)
-    if [ -n "$WIFI_IFNAME" ] && [ -e "/sys/class/net/$WIFI_IFNAME/address" ]; then
-      if [ -z "$WIFI_NAME" ]; then
-        MAC_HASH=$(cat /sys/class/net/$WIFI_IFNAME/address | md5sum | cut -c1-6)
-        WIFI_NAME="MagicRouter$MAC_HASH"
-        log_message "Сгенерировано автоматическое имя Wi-Fi: $WIFI_NAME"
-      fi
+log_message "Проверка текущих настроек Wi-Fi..."
+uci show wireless | grep -e "ssid\|device" > /tmp/wifi_debug.log
 
-      # Устанавливаем одинаковые имена для обеих сетей
-      uci set wireless.@wifi-iface[0].ssid="$WIFI_NAME"
-      uci set wireless.@wifi-iface[1].ssid="$WIFI_NAME"
-      log_message "Wi-Fi сети переименованы в '$WIFI_NAME'"
-    else
-      log_message "Не удалось получить MAC-адрес Wi-Fi интерфейса."
+# Генерация имени Wi-Fi если не задано
+if [ -z "$WIFI_NAME" ]; then
+  # Попробуем получить MAC от любого WiFi интерфейса
+  for DEV in $(ls /sys/class/net/ | grep wl); do
+    if [ -e "/sys/class/net/$DEV/address" ]; then
+      MAC_HASH=$(cat /sys/class/net/$DEV/address | md5sum | cut -c1-6)
+      WIFI_NAME="MagicRouter$MAC_HASH"
+      log_message "Сгенерировано автоматическое имя Wi-Fi: $WIFI_NAME от интерфейса $DEV"
+      break
     fi
-  else
-    log_message "Wi-Fi интерфейсы не найдены."
+  done
+  
+  # Если MAC не получили, используем случайное значение
+  if [ -z "$WIFI_NAME" ]; then
+    RANDOM_HASH=$(head -c 100 /dev/urandom | md5sum | cut -c1-6)
+    WIFI_NAME="MagicRouter$RANDOM_HASH"
+    log_message "Сгенерировано случайное имя Wi-Fi: $WIFI_NAME"
   fi
+fi
+
+# Прямая установка SSID для всех WiFi интерфейсов
+log_message "Установка SSID '$WIFI_NAME' для всех Wi-Fi интерфейсов..."
+
+# Получаем количество интерфейсов
+WIFI_COUNT=$(uci show wireless | grep "@wifi-iface\[" | wc -l)
+log_message "Найдено $WIFI_COUNT Wi-Fi интерфейсов"
+
+# Настраиваем каждый интерфейс
+if [ "$WIFI_COUNT" -gt 0 ]; then
+  for i in $(seq 0 $((WIFI_COUNT-1))); do
+    uci set wireless.@wifi-iface[$i].ssid="$WIFI_NAME"
+    log_message "Настроен интерфейс @wifi-iface[$i].ssid=$WIFI_NAME"
+  done
+  
+  # Сохраняем изменения
+  uci commit wireless
+  log_message "Изменения имени Wi-Fi сохранены"
 else
-  log_message "Wi-Fi интерфейсы не найдены. Пропускаю настройку Wi-Fi."
+  log_message "Wi-Fi интерфейсы не найдены. Невозможно изменить имя Wi-Fi."
 fi
 
 log_message "Настройка мощности сигнала Wi-Fi и паролей..."
-for iface in $(uci show wireless | grep "@wifi-iface" | cut -d "[" -f2 | cut -d "]" -f1); do
-  uci set wireless.@wifi-iface[$iface].txpower=20
+for iface in $(seq 0 $((WIFI_COUNT-1))); do
   uci set wireless.@wifi-iface[$iface].key="$WIFI_PASSWORD"
   uci set wireless.@wifi-iface[$iface].encryption="psk2"
-  log_message "Настроен Wi-Fi интерфейс $iface: мощность=20, шифрование=psk2"
+  log_message "Настроен пароль и шифрование для интерфейса @wifi-iface[$iface]"
 done
+
+# Установка мощности для всех устройств
+for device in $(uci show wireless | grep "@wifi-device" | cut -d "[" -f2 | cut -d "]" -f1); do
+  uci set wireless.@wifi-device[$device].txpower=20
+  log_message "Установлена мощность 20 для устройства @wifi-device[$device]"
+done
+
+# Применяем изменения
 uci commit wireless
 log_message "Перезагрузка Wi-Fi..."
 if wifi reload; then
   log_message "Wi-Fi успешно перезагружен"
 else
-  log_message "Ошибка при перезагрузке Wi-Fi"
+  log_message "Ошибка при перезагрузке Wi-Fi, пробуем альтернативный способ..."
+  wifi down
+  sleep 2
+  wifi up
+  log_message "Wi-Fi перезапущен альтернативным способом"
 fi
 
 log_message "Настройка web-панели..."
