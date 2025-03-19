@@ -222,7 +222,7 @@ if [ -n "$releasemihomo" ]; then
   log_message "Найдена версия mihomo: $releasemihomo"
 else
   log_message "Не удалось получить актуальную версию mihomo. Используется версия по умолчанию."
-  releasemihomo="v1.18.0"
+  releasemihomo="v1.19.3"
 fi
 
 log_message "Загрузка бинарника для $KERNEL..."
