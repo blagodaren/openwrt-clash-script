@@ -104,19 +104,46 @@ service clash stop
 
 # 11. Получение версии mihomo
 echo "Получение версии mihomo..."
-releasemihomo=$(curl -s -L https://github.com/MetaCubeX/mihomo/releases/latest | grep "title>Release" | cut -d " " -f 4)
+releasemihomo=$(curl -s -k -L https://github.com/MetaCubeX/mihomo/releases/latest | grep "title>Release" | cut -d " " -f 4)
+
+# Установка резервной версии в случае ошибки
+if [ -z "$releasemihomo" ]; then
+  echo "Не удалось определить последнюю версию mihomo. Использую версию по умолчанию: v1.18.0"
+  releasemihomo="v1.18.0"
+fi
 
 # 12. Загрузка бинарного файла в зависимости от выбранной архитектуры
 echo "Загрузка бинарника для $KERNEL..."
 case "$KERNEL" in
   arm64)
-    curl -L https://github.com/MetaCubeX/mihomo/releases/download/$releasemihomo/mihomo-linux-arm64-$releasemihomo.gz -o /tmp/clash.gz
+    echo "Пробую загрузить mihomo с GitHub..."
+    if ! curl -k -L --retry 3 --retry-delay 5 https://github.com/MetaCubeX/mihomo/releases/download/$releasemihomo/mihomo-linux-arm64-$releasemihomo.gz -o /tmp/clash.gz; then
+      echo "Не удалось загрузить с GitHub. Пробую альтернативный источник..."
+      if ! curl -k -L --retry 3 --retry-delay 5 https://mirror.ghproxy.com/https://github.com/MetaCubeX/mihomo/releases/download/$releasemihomo/mihomo-linux-arm64-$releasemihomo.gz -o /tmp/clash.gz; then
+        echo "Все источники недоступны. Пожалуйста, проверьте интернет-соединение или скачайте файл вручную."
+        exit 1
+      fi
+    fi
     ;;
   mipsel_24kc)
-    curl -L https://github.com/MetaCubeX/mihomo/releases/download/$releasemihomo/mihomo-linux-mipsle-softfloat-$releasemihomo.gz -o /tmp/clash.gz
+    echo "Пробую загрузить mihomo с GitHub..."
+    if ! curl -k -L --retry 3 --retry-delay 5 https://github.com/MetaCubeX/mihomo/releases/download/$releasemihomo/mihomo-linux-mipsle-softfloat-$releasemihomo.gz -o /tmp/clash.gz; then
+      echo "Не удалось загрузить с GitHub. Пробую альтернативный источник..."
+      if ! curl -k -L --retry 3 --retry-delay 5 https://mirror.ghproxy.com/https://github.com/MetaCubeX/mihomo/releases/download/$releasemihomo/mihomo-linux-mipsle-softfloat-$releasemihomo.gz -o /tmp/clash.gz; then
+        echo "Все источники недоступны. Пожалуйста, проверьте интернет-соединение или скачайте файл вручную."
+        exit 1
+      fi
+    fi
     ;;
   Amd64)
-    curl -L https://github.com/MetaCubeX/mihomo/releases/download/$releasemihomo/mihomo-linux-amd64-compatible-$releasemihomo.gz -o /tmp/clash.gz
+    echo "Пробую загрузить mihomo с GitHub..."
+    if ! curl -k -L --retry 3 --retry-delay 5 https://github.com/MetaCubeX/mihomo/releases/download/$releasemihomo/mihomo-linux-amd64-compatible-$releasemihomo.gz -o /tmp/clash.gz; then
+      echo "Не удалось загрузить с GitHub. Пробую альтернативный источник..."
+      if ! curl -k -L --retry 3 --retry-delay 5 https://mirror.ghproxy.com/https://github.com/MetaCubeX/mihomo/releases/download/$releasemihomo/mihomo-linux-amd64-compatible-$releasemihomo.gz -o /tmp/clash.gz; then
+        echo "Все источники недоступны. Пожалуйста, проверьте интернет-соединение или скачайте файл вручную."
+        exit 1
+      fi
+    fi
     ;;
 esac
 
