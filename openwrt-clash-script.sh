@@ -216,10 +216,10 @@ else
 fi
 
 log_message "Получение и установка luci-app-ssclash..."
-releasessclash=$(curl -s -L https://github.com/zerolabnet/SSClash/releases/latest | grep "title>Release" | cut -d " " -f 4 | cut -d "v" -f 2)
+releasessclash=$(curl -s -k -L https://github.com/zerolabnet/SSClash/releases/latest | grep "title>Release" | cut -d " " -f 4 | cut -d "v" -f 2)
 if [ -n "$releasessclash" ]; then
   log_message "Найдена версия SSClash: $releasessclash"
-  curl -L https://github.com/zerolabnet/ssclash/releases/download/v$releasessclash/luci-app-ssclash_${releasessclash}-1_all.ipk -o /tmp/luci-app-ssclash_${releasessclash}-1_all.ipk
+  curl -k -L https://github.com/zerolabnet/ssclash/releases/download/v$releasessclash/luci-app-ssclash_${releasessclash}-1_all.ipk -o /tmp/luci-app-ssclash_${releasessclash}-1_all.ipk
   if [ -f "/tmp/luci-app-ssclash_${releasessclash}-1_all.ipk" ]; then
     log_message "Установка пакета luci-app-ssclash..."
     if opkg install /tmp/luci-app-ssclash_${releasessclash}-1_all.ipk; then
@@ -241,7 +241,7 @@ else
 fi
 
 log_message "Получение версии mihomo..."
-releasemihomo=$(curl -s -L https://github.com/MetaCubeX/mihomo/releases/latest | grep "title>Release" | cut -d " " -f 4)
+releasemihomo=$(curl -s -k -L https://github.com/MetaCubeX/mihomo/releases/latest | grep "title>Release" | cut -d " " -f 4)
 if [ -n "$releasemihomo" ]; then
   log_message "Найдена версия mihomo: $releasemihomo"
 else
@@ -252,13 +252,13 @@ fi
 log_message "Загрузка бинарника для $KERNEL..."
 case "$KERNEL" in
   arm64)
-    curl -L https://github.com/MetaCubeX/mihomo/releases/download/$releasemihomo/mihomo-linux-arm64-$releasemihomo.gz -o /tmp/clash.gz
+    curl -k -L https://github.com/MetaCubeX/mihomo/releases/download/$releasemihomo/mihomo-linux-arm64-$releasemihomo.gz -o /tmp/clash.gz
     ;;
   mipsel_24kc)
-    curl -L https://github.com/MetaCubeX/mihomo/releases/download/$releasemihomo/mihomo-linux-mipsle-softfloat-$releasemihomo.gz -o /tmp/clash.gz
+    curl -k -L https://github.com/MetaCubeX/mihomo/releases/download/$releasemihomo/mihomo-linux-mipsle-softfloat-$releasemihomo.gz -o /tmp/clash.gz
     ;;
   Amd64)
-    curl -L https://github.com/MetaCubeX/mihomo/releases/download/$releasemihomo/mihomo-linux-amd64-compatible-$releasemihomo.gz -o /tmp/clash.gz
+    curl -k -L https://github.com/MetaCubeX/mihomo/releases/download/$releasemihomo/mihomo-linux-amd64-compatible-$releasemihomo.gz -o /tmp/clash.gz
     ;;
 esac
 
