@@ -160,22 +160,6 @@ uci set luci.main.mediaurlbase="/luci-static/argon"
 uci commit luci
 log_message "Web-панель настроена: язык=ru, тема=argon"
 
-log_message "Настройка сетевых интерфейсов и DNS..."
-uci set network.wan6.disabled=1
-uci set network.wan.peerdns=0
-uci del_list network.wan.dns 1>/dev/null 2>&1
-uci add_list network.wan.dns='1.1.1.1'
-uci add_list network.wan.dns='1.0.0.1'
-uci add_list network.wan.dns='8.8.4.4'
-uci add_list network.wan.dns='8.8.8.8'
-uci commit network
-log_message "Перезапуск сетевых интерфейсов..."
-if /etc/init.d/network restart; then
-  log_message "Сетевые интерфейсы успешно перезапущены"
-else
-  log_message "Ошибка при перезапуске сетевых интерфейсов"
-fi
-
 log_message "Обновление opkg и установка необходимых пакетов..."
 if opkg update --no-check-certificate; then
   log_message "База пакетов успешно обновлена"
@@ -207,13 +191,6 @@ if [ -n "$releasessclash" ]; then
   fi
 else
   log_message "Не удалось получить актуальную версию SSClash"
-fi
-
-log_message "Остановка сервиса clash..."
-if service clash stop; then
-  log_message "Сервис clash успешно остановлен"
-else
-  log_message "Ошибка при остановке сервиса clash или сервис не был запущен"
 fi
 
 log_message "Получение версии mihomo..."
