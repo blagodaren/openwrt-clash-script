@@ -190,6 +190,18 @@ uci set luci.main.mediaurlbase="/luci-static/argon"
 uci commit luci
 log_message "Web-панель настроена: язык=ru, тема=argon"
 
+# Отключение wan6 интерфейса
+log_message "Отключение wan6 интерфейса..."
+if uci show network | grep -q "wan6"; then
+  uci set network.wan6.auto='0'
+  uci set network.wan6.disabled='1'
+  uci commit network
+  /etc/init.d/network reload
+  log_message "Интерфейс wan6 отключен"
+else
+  log_message "Интерфейс wan6 не найден"
+fi
+
 log_message "Обновление opkg и установка необходимых пакетов..."
 if opkg update --no-check-certificate; then
   log_message "База пакетов успешно обновлена"
@@ -259,8 +271,24 @@ else
   log_message "Ошибка: файл /tmp/clash.gz не найден"
 fi
 
+# Отключаем автозапуск Clash при загрузке
+log_message "Отключение автозапуска Clash при загрузке..."
+if [ -f "/etc/init.d/clash" ]; then
+  /etc/init.d/clash disable
+  log_message "Автозапуск Clash отключен"
+else
+  log_message "Служба Clash не найдена"
+fi
+
+if [ -f "/etc/init.d/ssclash" ]; then
+  /etc/init.d/ssclash disable
+  log_message "Автозапуск SSClash отключен"
+else
+  log_message "Служба SSClash не найдена"
+fi
+
 if [ -x "/opt/clash/bin/clash" ]; then
-  log_message "Запуск сервиса clash..."
+  log_message "Запуск сервиса clash (без автозапуска)..."
   if service clash start; then
     log_message "Сервис clash успешно запущен"
   else
