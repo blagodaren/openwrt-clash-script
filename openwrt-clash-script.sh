@@ -228,6 +228,11 @@ if [ -n "$releasessclash" ]; then
       log_message "Ошибка при установке пакета luci-app-ssclash"
     fi
     rm -f /tmp/luci-app-ssclash_${releasessclash}-1_all.ipk
+    
+    # Останавливаем сервис clash после установки пакета
+    log_message "Останавливаем сервис clash..."
+    service clash stop
+    log_message "Сервис clash остановлен"
   else
     log_message "Ошибка при загрузке пакета luci-app-ssclash"
   fi
